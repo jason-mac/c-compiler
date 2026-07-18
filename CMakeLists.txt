@@ -19,3 +19,6 @@ target_include_directories(ccompiler SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS} ${MLIR_
 target_compile_definitions(ccompiler PRIVATE ${LLVM_DEFINITIONS})
 
 target_link_libraries(ccompiler PRIVATE MLIRIR MLIRParser MLIRSupport)
+
+enable_testing()
+add_subdirectory(tests)
