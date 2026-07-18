@@ -127,4 +127,8 @@ public:
       : type(type), lexeme(lexeme), line(line), column(column)
   {
   }
+  Token(const Token& token)
+      : type(token.type), lexeme(token.lexeme), line(token.line), column(token.column)
+  {
+  }
 };
