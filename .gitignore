@@ -1,0 +1,12 @@
+build/
+compile_commands.json
+
+*.o
+*.obj
+*.out
+
+.DS_Store
+
+.vscode/
+.idea/
+*.swp
