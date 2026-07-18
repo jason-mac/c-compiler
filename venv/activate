@@ -1,0 +1,23 @@
+# Usage: source venv/activate
+#
+# Creates venv/ (via uv) if it doesn't exist yet, activates it.
+
+export UV_PROJECT_ENVIRONMENT="$(pwd)/venv"
+uv venv venv --allow-existing --quiet
+rm -f venv/.gitignore  # uv regenerates this with "*", which re-ignores our tracked activate script
+uv sync
+
+if [ -f venv/bin/activate ]; then
+  source venv/bin/activate
+fi
+
+if [ "$VIRTUAL_ENV" != "$(pwd)/venv" ]; then
+  echo "ERROR: detected relocated or broken virtualenv." >&2
+  echo "Expected: $(pwd)/venv" >&2
+  echo "Actual:   ${VIRTUAL_ENV:-<unset>}" >&2
+  echo "Remove 'venv/' and re-source this script to recreate it." >&2
+  deactivate nondestructive 2> /dev/null || true
+  return 1
+fi
+
+pre-commit install > /dev/null
