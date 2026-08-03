@@ -21,3 +21,6 @@ if [ "$VIRTUAL_ENV" != "$(pwd)/venv" ]; then
 fi
 
 pre-commit install > /dev/null
+
+alias run_tests="$(pwd)/build/tests/ccompiler_tests --gtest_color=yes --gtest_print_time=1 --gtest_break_on_failure --gtest_catch_exceptions=0"
+alias build="cmake --build \"$(pwd)/build\""
