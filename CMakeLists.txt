@@ -13,7 +13,7 @@ find_package(GTest REQUIRED CONFIG)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Found MLIR ${MLIR_PACKAGE_VERSION}")
 
-add_executable(ccompiler src/main.cpp src/lexer.cpp)
+add_executable(ccompiler src/main.cpp src/lexer.cpp src/parser.cpp)
 target_include_directories(ccompiler PRIVATE include)
 target_include_directories(ccompiler SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS} ${MLIR_INCLUDE_DIRS})
 target_compile_definitions(ccompiler PRIVATE ${LLVM_DEFINITIONS})
