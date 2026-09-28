@@ -103,49 +103,93 @@ std::unique_ptr<Stmt> Parser::statement()
 std::unique_ptr<Stmt> Parser::blockStatement()
 {
   // compound-statement ::= '{' (declaration | statement)* '}'
-  return nullptr;
+  std::vector<std::unique_ptr<Stmt>> stmts;
+  while (!isAtEnd() && peek().type != TokenType::RBrace)
+  {
+    stmts.push_back(statement());
+  }
+  consume(TokenType::RBrace, "expected '}' after block");
+  return std::make_unique<BlockStmt>(std::move(stmts));
 }
 
 std::unique_ptr<Stmt> Parser::ifStatement()
 {
   // selection-statement ::= 'if' '(' expression ')' statement ('else' statement)?
-  return nullptr;
+  consume(TokenType::LParen, "expected '(' after 'if'");
+  auto condition = expression();
+  consume(TokenType::RParen, "expected ')' after condition");
+  auto then_branch = statement();
+  auto if_stmt = std::make_unique<IfStmt>(std::move(condition), std::move(then_branch), nullptr);
+  if (match(TokenType::Else))
+  {
+    if_stmt->elseBranch = statement();
+  }
+  return if_stmt;
 }
 
 std::unique_ptr<Stmt> Parser::whileStatement()
 {
   // iteration-statement ::= 'while' '(' expression ')' statement
-  return nullptr;
+  consume(TokenType::LParen, "expected '(' after 'while'");
+  auto condition = expression();
+  consume(TokenType::RParen, "expected ')' after condition");
+  auto stmt = statement();
+  return std::make_unique<WhileStmt>(std::move(condition), std::move(stmt));
 }
 
 std::unique_ptr<Stmt> Parser::doWhileStatement()
 {
   // iteration-statement ::= 'do' statement 'while' '(' expression ')' ';'
-  return nullptr;
+  auto stmt = statement();
+  consume(TokenType::While, "expected 'while' after do body");
+  consume(TokenType::LParen, "expected '(' after 'while'");
+  auto expr = expression();
+  consume(TokenType::RParen, "expected ')' after condition");
+  consume(TokenType::Semicolon, "expected ';' after do-while");
+  return std::make_unique<DoWhileStmt>(std::move(stmt), std::move(expr));
 }
 
 std::unique_ptr<Stmt> Parser::forStatement()
 {
   // iteration-statement ::= 'for' '(' expression? ';' expression? ';' expression? ')' statement
-  return nullptr;
+  consume(TokenType::LParen, "expected '(' after 'for'");
+  std::unique_ptr<Stmt> init = match(TokenType::Semicolon) ? nullptr : expressionStatement();
+  auto cond = peek().type == TokenType::Semicolon ? nullptr : expression();
+  consume(TokenType::Semicolon, "expected ';' after for condition");
+  auto update = peek().type == TokenType::RParen ? nullptr : expression();
+  consume(TokenType::RParen, "expected ')' after for clauses");
+  auto stmt = statement();
+  return std::make_unique<ForStmt>(std::move(init), std::move(cond), std::move(update),
+                                   std::move(stmt));
 }
 
 std::unique_ptr<Stmt> Parser::returnStatement()
 {
   // jump-statement ::= 'return' expression? ';'
-  return nullptr;
+  Token keyword = previous();
+  std::unique_ptr<Expr> expr = nullptr;
+  if (peek().type != TokenType::Semicolon)
+  {
+    expr = expression();
+  }
+  consume(TokenType::Semicolon, "expected ';' after return");
+  return std::make_unique<ReturnStmt>(keyword, std::move(expr));
 }
 
 std::unique_ptr<Stmt> Parser::breakStatement()
 {
   // jump-statement ::= 'break' ';'
-  return nullptr;
+  Token keyword = previous();
+  consume(TokenType::Semicolon, "expected ';' after break");
+  return std::make_unique<BreakStmt>(keyword);
 }
 
 std::unique_ptr<Stmt> Parser::continueStatement()
 {
   // jump-statement ::= 'continue' ';'
-  return nullptr;
+  Token keyword = previous();
+  consume(TokenType::Semicolon, "expected ';' after continue");
+  return std::make_unique<ContinueStmt>(keyword);
 }
 
 std::unique_ptr<Stmt> Parser::expressionStatement()
