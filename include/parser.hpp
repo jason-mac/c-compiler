@@ -172,6 +172,35 @@ private:
   std::vector<Token> tokens_;
   size_t pos_;
 
+  std::unique_ptr<Stmt> statement();
+  std::unique_ptr<Stmt> blockStatement();
+  std::unique_ptr<Stmt> ifStatement();
+  std::unique_ptr<Stmt> whileStatement();
+  std::unique_ptr<Stmt> doWhileStatement();
+  std::unique_ptr<Stmt> forStatement();
+  std::unique_ptr<Stmt> returnStatement();
+  std::unique_ptr<Stmt> breakStatement();
+  std::unique_ptr<Stmt> continueStatement();
+  std::unique_ptr<Stmt> expressionStatement();
+
+  std::unique_ptr<Expr> expression();
+  std::unique_ptr<Expr> assignmentExpression();
+  std::unique_ptr<Expr> conditionalExpression();
+  std::unique_ptr<Expr> logicalOrExpression();
+  std::unique_ptr<Expr> logicalAndExpression();
+  std::unique_ptr<Expr> inclusiveOrExpression();
+  std::unique_ptr<Expr> exclusiveOrExpression();
+  std::unique_ptr<Expr> andExpression();
+  std::unique_ptr<Expr> equalityExpression();
+  std::unique_ptr<Expr> relationalExpression();
+  std::unique_ptr<Expr> shiftExpression();
+  std::unique_ptr<Expr> additiveExpression();
+  std::unique_ptr<Expr> multiplicativeExpression();
+  std::unique_ptr<Expr> castExpression();
+  std::unique_ptr<Expr> unaryExpression();
+  std::unique_ptr<Expr> postfixExpression();
+  std::unique_ptr<Expr> primaryExpression();
+
   const Token& advance();
   const Token& peek();
   const Token& peekNext();
