@@ -21,19 +21,40 @@
 #include "expressions/unary_expr.hpp"
 #include "lexer.hpp"
 #include "parser.hpp"
+#include "statements/block_stmt.hpp"
+#include "statements/break_stmt.hpp"
+#include "statements/continue_stmt.hpp"
+#include "statements/do_while_stmt.hpp"
+#include "statements/enum_decl.hpp"
 #include "statements/expression_stmt.hpp"
+#include "statements/for_stmt.hpp"
+#include "statements/function_decl.hpp"
+#include "statements/if_stmt.hpp"
+#include "statements/return_stmt.hpp"
+#include "statements/struct_decl.hpp"
+#include "statements/var_decl_stmt.hpp"
+#include "statements/while_stmt.hpp"
 #include "visitor.hpp"
 
 namespace
 {
-// Prints an expression tree as an S-expression, so `1 + 2 * 3` becomes (+ 1 (* 2 3)).
-class AstPrinter : public jm::ExprVisitor
+// Prints a tree as an S-expression, so `1 + 2 * 3` becomes (+ 1 (* 2 3)) and
+// `while (x) y;` becomes (while x y;). Expression statements print as the expression plus `;`,
+// and a missing optional part (like an empty for clause) prints as `_`.
+class AstPrinter : public jm::ExprVisitor, public jm::StmtVisitor
 {
 public:
   std::string print(jm::Expr* expr)
   {
     if (expr == nullptr) return "<null>";
     expr->accept(*this);
+    return result_;
+  }
+
+  std::string print(jm::Stmt* stmt)
+  {
+    if (stmt == nullptr) return "<null>";
+    stmt->accept(*this);
     return result_;
   }
 
@@ -105,8 +126,105 @@ public:
     result_ = list(expr.op.lexeme, {expr.target.get(), expr.value.get()});
   }
 
+  void visitExpressionStmt(jm::ExpressionStmt& stmt) override
+  {
+    result_ = stmt.expr == nullptr ? ";" : print(stmt.expr.get()) + ";";
+  }
+
+  void visitBlockStmt(jm::BlockStmt& stmt) override
+  {
+    std::string out = "(block";
+    for (auto& child : stmt.statements) out += " " + print(child.get());
+    result_ = out + ")";
+  }
+
+  void visitIfStmt(jm::IfStmt& stmt) override
+  {
+    std::string out = "(if " + print(stmt.condition.get()) + " " + print(stmt.thenBranch.get());
+    if (stmt.elseBranch != nullptr) out += " " + print(stmt.elseBranch.get());
+    result_ = out + ")";
+  }
+
+  void visitWhileStmt(jm::WhileStmt& stmt) override
+  {
+    result_ = "(while " + print(stmt.condition.get()) + " " + print(stmt.body.get()) + ")";
+  }
+
+  void visitDoWhileStmt(jm::DoWhileStmt& stmt) override
+  {
+    result_ = "(do " + print(stmt.body.get()) + " " + print(stmt.condition.get()) + ")";
+  }
+
+  void visitForStmt(jm::ForStmt& stmt) override
+  {
+    std::string init = stmt.init == nullptr ? "_" : print(stmt.init.get());
+    result_ = "(for " + init + " " + optional(stmt.condition.get()) + " " +
+              optional(stmt.increment.get()) + " " + print(stmt.body.get()) + ")";
+  }
+
+  void visitBreakStmt(jm::BreakStmt&) override
+  {
+    result_ = "(break)";
+  }
+
+  void visitContinueStmt(jm::ContinueStmt&) override
+  {
+    result_ = "(continue)";
+  }
+
+  void visitReturnStmt(jm::ReturnStmt& stmt) override
+  {
+    result_ = stmt.value == nullptr ? "(return)" : "(return " + print(stmt.value.get()) + ")";
+  }
+
+  void visitVarDeclStmt(jm::VarDeclStmt& stmt) override
+  {
+    std::string out = "(var " + typeName(stmt.type) + " " + std::string(stmt.name.lexeme);
+    if (stmt.initializer != nullptr) out += " " + print(stmt.initializer.get());
+    result_ = out + ")";
+  }
+
+  void visitFunctionDecl(jm::FunctionDecl& stmt) override
+  {
+    std::string params;
+    for (auto& param : stmt.params)
+    {
+      if (!params.empty()) params += " ";
+      params += "(" + typeName(param.type) + " " + std::string(param.name.lexeme) + ")";
+    }
+    std::string out = "(fn " + typeName(stmt.returnType) + " " + std::string(stmt.name.lexeme) +
+                      " (" + params + ")";
+    if (stmt.body != nullptr) out += " " + print(stmt.body.get());
+    result_ = out + ")";
+  }
+
+  void visitStructDecl(jm::StructDecl& stmt) override
+  {
+    std::string out = "(struct " + std::string(stmt.name.lexeme);
+    for (auto& field : stmt.fields)
+      out += " (" + typeName(field.type) + " " + std::string(field.name.lexeme) + ")";
+    result_ = out + ")";
+  }
+
+  void visitEnumDecl(jm::EnumDecl& stmt) override
+  {
+    std::string out = "(enum " + std::string(stmt.name.lexeme);
+    for (auto& enumerator : stmt.enumerators)
+    {
+      std::string name(enumerator.name.lexeme);
+      out += enumerator.value == nullptr ? " " + name
+                                         : " (" + name + " " + print(enumerator.value.get()) + ")";
+    }
+    result_ = out + ")";
+  }
+
 private:
   std::string result_;
+
+  std::string optional(jm::Expr* expr)
+  {
+    return expr == nullptr ? "_" : print(expr);
+  }
 
   std::string list(std::string_view head, const std::vector<jm::Expr*>& children)
   {
@@ -161,6 +279,26 @@ bool reportsError(std::string_view source)
   return parseErrors(source).find("ParseError") != std::string::npos;
 }
 
+// Parses `source` and prints every statement, separated by spaces.
+std::string parseStmts(std::string_view source)
+{
+  auto statements = parse(source);
+  AstPrinter printer;
+  std::string out;
+  for (auto& statement : statements)
+  {
+    if (!out.empty()) out += " ";
+    out += printer.print(statement.get());
+  }
+  return out;
+}
+
+// The only statement parsed, as a T, or nullptr if there isn't exactly one statement of that type.
+template <typename T> T* onlyStmt(const std::vector<std::unique_ptr<jm::Stmt>>& statements)
+{
+  return statements.size() == 1 ? dynamic_cast<T*>(statements[0].get()) : nullptr;
+}
+
 using Case = std::pair<std::string_view, std::string_view>; // source, expected S-expression
 
 void expectAll(std::initializer_list<Case> cases)
@@ -169,6 +307,15 @@ void expectAll(std::initializer_list<Case> cases)
   {
     SCOPED_TRACE(source);
     EXPECT_EQ(parseExpr(source), expected);
+  }
+}
+
+void expectAllStmts(std::initializer_list<Case> cases)
+{
+  for (const auto& [source, expected] : cases)
+  {
+    SCOPED_TRACE(source);
+    EXPECT_EQ(parseStmts(source), expected);
   }
 }
 } // namespace
@@ -715,4 +862,243 @@ TEST(ParseErrorTest, RecoversAtTheNextStatement)
   auto* statement = dynamic_cast<jm::ExpressionStmt*>(statements[0].get());
   ASSERT_NE(statement, nullptr);
   EXPECT_EQ(AstPrinter().print(statement->expr.get()), "(= b 1)");
+}
+
+// ---------------------------------------------------------------------------
+// Statements
+// ---------------------------------------------------------------------------
+
+TEST(ExpressionStmtTest, EmptyStatement)
+{
+  auto nonEmpty = parse("x;");
+  auto* withExpr = onlyStmt<jm::ExpressionStmt>(nonEmpty);
+  ASSERT_NE(withExpr, nullptr);
+  ASSERT_NE(withExpr->expr, nullptr);
+
+  auto empty = parse(";");
+  auto* statement = onlyStmt<jm::ExpressionStmt>(empty);
+  ASSERT_NE(statement, nullptr);
+  EXPECT_EQ(statement->expr, nullptr);
+  EXPECT_EQ(parseStmts("; ;"), "; ;");
+}
+
+TEST(BlockStmtTest, Blocks)
+{
+  expectAllStmts({
+      {"{}", "(block)"},
+      {"{ a; b = 1; }", "(block a; (= b 1);)"},
+      {"{ { a; } b; }", "(block (block a;) b;)"},
+      {"{ ; }", "(block ;)"},
+      {"{ a; } b;", "(block a;) b;"},
+  });
+}
+
+TEST(IfStmtTest, IfAndElse)
+{
+  expectAllStmts({
+      {"if (a) b;", "(if a b;)"},
+      {"if (a) b; else c;", "(if a b; c;)"},
+      {"if (a) { b; } else { c; }", "(if a (block b;) (block c;))"},
+      {"if (a = f(), a) b;", "(if (, (= a (call f)) a) b;)"},
+  });
+}
+
+TEST(IfStmtTest, ElseIfChainNests)
+{
+  EXPECT_EQ(parseStmts("if (a) b; else if (c) d; else e;"), "(if a b; (if c d; e;))");
+}
+
+TEST(IfStmtTest, DanglingElseGoesToTheNearestIf)
+{
+  EXPECT_EQ(parseStmts("if (a) if (b) c; else d;"), "(if a (if b c; d;))");
+}
+
+TEST(IfStmtTest, ElseBranchIsNullWithoutElse)
+{
+  auto withElse = parse("if (a) b; else c;");
+  auto* hasElse = onlyStmt<jm::IfStmt>(withElse);
+  ASSERT_NE(hasElse, nullptr);
+  ASSERT_NE(hasElse->elseBranch, nullptr);
+
+  auto withoutElse = parse("if (a) b;");
+  auto* noElse = onlyStmt<jm::IfStmt>(withoutElse);
+  ASSERT_NE(noElse, nullptr);
+  EXPECT_EQ(noElse->elseBranch, nullptr);
+}
+
+TEST(WhileStmtTest, Loops)
+{
+  expectAllStmts({
+      {"while (a) b;", "(while a b;)"},
+      {"while (i < n) { i++; }", "(while (< i n) (block (++ i);))"},
+      {"while (x) ;", "(while x ;)"},
+  });
+}
+
+TEST(DoWhileStmtTest, Loops)
+{
+  expectAllStmts({
+      {"do a; while (b);", "(do a; b)"},
+      {"do { i++; } while (i < 10);", "(do (block (++ i);) (< i 10))"},
+      {"do ; while (x);", "(do ; x)"},
+  });
+}
+
+TEST(ForStmtTest, AllClauses)
+{
+  EXPECT_EQ(parseStmts("for (i = 0; i < n; i++) s += i;"),
+            "(for (= i 0); (< i n) (++ i) (+= s i);)");
+}
+
+TEST(ForStmtTest, EveryClauseIsOptional)
+{
+  expectAllStmts({
+      {"for (;;) x;", "(for _ _ _ x;)"},
+      {"for (i = 0;;) x;", "(for (= i 0); _ _ x;)"},
+      {"for (; i < n;) x;", "(for _ (< i n) _ x;)"},
+      {"for (;; i++) x;", "(for _ _ (++ i) x;)"},
+  });
+}
+
+TEST(ForStmtTest, CommasInClauses)
+{
+  EXPECT_EQ(parseStmts("for (i = 0, j = n; i < j; i++, j--) swap(i, j);"),
+            "(for (, (= i 0) (= j n)); (< i j) (, (++ i) (-- j)) (call swap i j);)");
+}
+
+TEST(ForStmtTest, BlockBody)
+{
+  EXPECT_EQ(parseStmts("for (;;) { break; }"), "(for _ _ _ (block (break)))");
+}
+
+TEST(ForStmtTest, InitIsAnExpressionStatement)
+{
+  auto statements = parse("for (i = 0; i < n; i++) x;");
+  auto* loop = onlyStmt<jm::ForStmt>(statements);
+  ASSERT_NE(loop, nullptr);
+  EXPECT_NE(dynamic_cast<jm::ExpressionStmt*>(loop->init.get()), nullptr);
+}
+
+TEST(ReturnStmtTest, Values)
+{
+  expectAllStmts({
+      {"return;", "(return)"},
+      {"return x;", "(return x)"},
+      {"return a + b * c;", "(return (+ a (* b c)))"},
+      {"return a, b;", "(return (, a b))"},
+  });
+}
+
+TEST(ReturnStmtTest, KeepsItsKeyword)
+{
+  auto statements = parse("\nreturn x;");
+  auto* statement = onlyStmt<jm::ReturnStmt>(statements);
+  ASSERT_NE(statement, nullptr);
+  EXPECT_EQ(statement->keyword.type, TokenType::Return);
+  EXPECT_EQ(statement->keyword.line, 2);
+}
+
+TEST(JumpStmtTest, BreakAndContinue)
+{
+  expectAllStmts({
+      {"break;", "(break)"},
+      {"continue;", "(continue)"},
+  });
+}
+
+TEST(JumpStmtTest, BreakKeepsItsKeyword)
+{
+  auto statements = parse("\n\nbreak;");
+  auto* statement = onlyStmt<jm::BreakStmt>(statements);
+  ASSERT_NE(statement, nullptr);
+  EXPECT_EQ(statement->keyword.type, TokenType::Break);
+  EXPECT_EQ(statement->keyword.lexeme, "break");
+  EXPECT_EQ(statement->keyword.line, 3);
+}
+
+TEST(JumpStmtTest, ContinueKeepsItsKeyword)
+{
+  auto statements = parse("\n\ncontinue;");
+  auto* statement = onlyStmt<jm::ContinueStmt>(statements);
+  ASSERT_NE(statement, nullptr);
+  EXPECT_EQ(statement->keyword.type, TokenType::Continue);
+  EXPECT_EQ(statement->keyword.lexeme, "continue");
+  EXPECT_EQ(statement->keyword.line, 3);
+}
+
+TEST(StatementTest, Nesting)
+{
+  expectAllStmts({
+      {"while (1) { if (x) break; else continue; }", "(while 1 (block (if x (break) (continue))))"},
+      {"if (n < 0) { return -1; } else if (n == 0) { return 0; }",
+       "(if (< n 0) (block (return (- 1))) (if (== n 0) (block (return 0))))"},
+      {"for (i = 0; i < n; i++) { if (i % 2 == 0) { continue; } result += i; }",
+       "(for (= i 0); (< i n) (++ i) (block (if (== (% i 2) 0) (block (continue))) (+= result "
+       "i);))"},
+  });
+}
+
+TEST(StatementErrorTest, UnclosedBlock)
+{
+  ASSERT_FALSE(reportsError("{ a; }"));
+  EXPECT_TRUE(reportsError("{ a;"));
+}
+
+TEST(StatementErrorTest, IfParentheses)
+{
+  ASSERT_FALSE(reportsError("if (a) b;"));
+  EXPECT_TRUE(reportsError("if a) b;"));
+  EXPECT_TRUE(reportsError("if (a b;"));
+}
+
+TEST(StatementErrorTest, MissingBody)
+{
+  ASSERT_FALSE(reportsError("if (a) ;"));
+  EXPECT_TRUE(reportsError("if (a)"));
+  EXPECT_TRUE(reportsError("while (a)"));
+}
+
+TEST(StatementErrorTest, WhileParentheses)
+{
+  ASSERT_FALSE(reportsError("while (a) b;"));
+  EXPECT_TRUE(reportsError("while a) b;"));
+  EXPECT_TRUE(reportsError("while (a b;"));
+}
+
+TEST(StatementErrorTest, DoWhile)
+{
+  ASSERT_FALSE(reportsError("do a; while (b);"));
+  EXPECT_TRUE(reportsError("do a; (b);"));
+  EXPECT_TRUE(reportsError("do a; while b);"));
+  EXPECT_TRUE(reportsError("do a; while (b;"));
+  EXPECT_TRUE(reportsError("do a; while (b)"));
+}
+
+TEST(StatementErrorTest, ForClauses)
+{
+  ASSERT_FALSE(reportsError("for (i = 0; i < n; i++) x;"));
+  EXPECT_TRUE(reportsError("for i = 0; i < n; i++) x;"));
+  EXPECT_TRUE(reportsError("for (i = 0 i < n; i++) x;"));
+  EXPECT_TRUE(reportsError("for (i = 0; i < n i++) x;"));
+  EXPECT_TRUE(reportsError("for (i = 0; i < n; i++ x;"));
+}
+
+TEST(StatementErrorTest, MissingSemicolonAfterJump)
+{
+  ASSERT_FALSE(reportsError("return x; break; continue;"));
+  EXPECT_TRUE(reportsError("return x"));
+  EXPECT_TRUE(reportsError("break"));
+  EXPECT_TRUE(reportsError("continue"));
+}
+
+TEST(StatementErrorTest, RecoversAtTheNextKeyword)
+{
+  testing::internal::CaptureStderr();
+  auto statements = parse("if (a b) return 1;");
+  std::string errors = testing::internal::GetCapturedStderr();
+
+  EXPECT_NE(errors.find("ParseError"), std::string::npos);
+  auto* statement = onlyStmt<jm::ReturnStmt>(statements);
+  ASSERT_NE(statement, nullptr);
+  EXPECT_EQ(AstPrinter().print(statement), "(return 1)");
 }
